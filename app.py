@@ -21,11 +21,15 @@ from databricks import sql
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 def _cfg(env_key: str, secret_key: str | None = None) -> str:
-    sk = secret_key or env_key.lower()
-    try:
-        return st.secrets[sk]
-    except Exception:
-        return os.environ.get(env_key, "")
+    # Try lowercase, then exact case, then env var — handles any Streamlit secrets casing
+    for key in [secret_key or env_key.lower(), env_key]:
+        try:
+            val = st.secrets.get(key, "")
+            if val:
+                return val
+        except Exception:
+            pass
+    return os.environ.get(env_key, "")
 
 SERVER_HOSTNAME = _cfg("DATABRICKS_SERVER_HOSTNAME")
 HTTP_PATH       = _cfg("DATABRICKS_HTTP_PATH")
