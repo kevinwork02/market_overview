@@ -181,6 +181,79 @@ def load_market_data(
     return df
 
 
+# ── Boolean audience query ───────────────────────────────────────────────────
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_market_data_bool(
+    dma_codes: tuple,
+    include_all: tuple,
+    include_any: tuple,
+    exclude: tuple,
+    aud_table_map: tuple,   # ((col, table), ...)
+) -> pd.DataFrame:
+    """
+    HH penetration with boolean AND / OR / NOT audience logic.
+    include_all  → HH must match EVERY segment in this group (AND)
+    include_any  → HH must match AT LEAST ONE segment in this group (OR)
+    exclude      → HH must NOT match any segment in this group (AND NOT)
+    """
+    all_segs = list(include_all) + list(include_any) + list(exclude)
+    for col in all_segs:
+        if not re.match(r"^[a-zA-Z0-9_]+$", col):
+            raise ValueError(f"Invalid column name: {col}")
+
+    table_of = dict(aud_table_map)
+
+    def _alias(col: str) -> str:
+        return "ma" if "experian_marketing_attributes" in table_of.get(col, "") else "cv"
+
+    # Determine which tables are actually needed
+    used_tables = {table_of.get(s, "") for s in all_segs}
+    needs_cv = any("experian_consumerview" in t and "marketing" not in t for t in used_tables)
+    needs_ma = any("experian_marketing_attributes" in t for t in used_tables)
+
+    joins = []
+    if needs_cv:
+        joins.append("LEFT JOIN locality_dev.silver.experian_consumerview cv ON l.luid = cv.recd_luid")
+    if needs_ma:
+        joins.append(
+            "LEFT JOIN locality_dev.gold.experian_marketing_attributes ma "
+            "ON l.luid = ma.recd_luid "
+            "AND (ma.reliability_code BETWEEN 1 AND 4 OR ma.reliability_code IS NULL)"
+        )
+
+    # Build the boolean CASE WHEN filter
+    filter_parts = []
+    for seg in include_all:
+        filter_parts.append(f"{_alias(seg)}.`{seg}` = TRUE")
+    if include_any:
+        or_clauses = [f"{_alias(seg)}.`{seg}` = TRUE" for seg in include_any]
+        filter_parts.append(f"({' OR '.join(or_clauses)})")
+    for seg in exclude:
+        filter_parts.append(f"({_alias(seg)}.`{seg}` IS NULL OR {_alias(seg)}.`{seg}` != TRUE)")
+
+    filter_expr = " AND ".join(filter_parts) if filter_parts else "TRUE"
+    dma_filter  = ", ".join(f"'{c}'" for c in dma_codes)
+    join_block  = "\n    ".join(joins)
+
+    q = f"""
+    SELECT
+        d.dma_name,
+        l.dma                                                                     AS dma_code,
+        COUNT(DISTINCT l.luid)                                                    AS tv_households,
+        COUNT(DISTINCT CASE WHEN {filter_expr} THEN l.luid END)                   AS audience_hhs
+    FROM locality_dev.silver.experian_location  l
+    JOIN locality_dev.default.dma_codes_v3       d  ON CAST(d.dma_code AS STRING) = l.dma
+    {join_block}
+    WHERE l.dma IN ({dma_filter})
+    GROUP BY d.dma_name, l.dma
+    ORDER BY tv_households DESC
+    """
+    df = run_query(q)
+    df["tv_households"] = df["tv_households"].astype(int)
+    df["audience_hhs"]  = df["audience_hhs"].astype(int)
+    return df
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def fmt_label(col: str) -> str:
     """snake_case column name → readable Title Case label."""
@@ -268,32 +341,84 @@ def main():
     selected_codes = [dma_code_of[n] for n in selected_names]
     n_markets      = len(selected_codes)
 
-    # ── Step 2: Audience dropdown ─────────────────────────────────────────────
+    # ── Step 2: Audience selection ────────────────────────────────────────────
     st.markdown("---")
-    st.markdown('<div class="step-pill">Step 2 — Select Audience Segment</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-pill">Step 2 — Select Audience Segment(s)</div>', unsafe_allow_html=True)
 
     with st.spinner("Loading audience segments…"):
         aud_df = load_audience_columns()
 
-    # Build label → {col, table} map (already deduplicated by priority)
+    # Build label → {col, table} map + col → table lookup for boolean builder
     aud_meta: dict[str, dict] = {}
+    col_to_table: dict[str, str] = {}
     for _, row in aud_df.iterrows():
         label = fmt_label(row["column_name"])
         aud_meta[label] = {"col": row["column_name"], "table": row["source_table"]}
+        col_to_table[row["column_name"]] = row["source_table"]
 
     sorted_labels  = sorted(aud_meta.keys())
     total_segments = len(sorted_labels)
 
-    selected_aud = st.selectbox(
-        f"Choose an audience  ({total_segments:,} segments available):",
-        options=[""] + sorted_labels,
-        format_func=lambda x: "— Select an audience segment —" if x == "" else x,
+    aud_mode = st.radio(
+        "Selection mode:",
+        ["Single segment", "Boolean logic  (AND / OR / NOT)"],
+        horizontal=True,
+        label_visibility="collapsed",
     )
+
+    # ── Simple mode ───────────────────────────────────────────────────────────
+    inc_all: list[str] = []
+    inc_any: list[str] = []
+    exc:     list[str] = []
+
+    if aud_mode == "Single segment":
+        selected_aud = st.selectbox(
+            f"Choose an audience  ({total_segments:,} segments available):",
+            options=[""] + sorted_labels,
+            format_func=lambda x: "— Select an audience segment —" if x == "" else x,
+        )
+        aud_ready = bool(selected_aud)
+
+    # ── Boolean mode ──────────────────────────────────────────────────────────
+    else:
+        selected_aud = ""
+        hdr = f'<div style="color:{CYAN};font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">'
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(hdr + "Must match ALL (AND)</div>", unsafe_allow_html=True)
+            inc_all_labels = st.multiselect("", sorted_labels, key="inc_all",
+                                             placeholder="Add segment…", label_visibility="collapsed")
+        with c2:
+            st.markdown(hdr + "Must match ANY (OR)</div>", unsafe_allow_html=True)
+            inc_any_labels = st.multiselect("", sorted_labels, key="inc_any",
+                                             placeholder="Add segment…", label_visibility="collapsed")
+        with c3:
+            st.markdown(hdr + "Exclude (AND NOT)</div>", unsafe_allow_html=True)
+            exc_labels = st.multiselect("", sorted_labels, key="exc",
+                                         placeholder="Add segment…", label_visibility="collapsed")
+
+        inc_all = [aud_meta[l]["col"] for l in inc_all_labels]
+        inc_any = [aud_meta[l]["col"] for l in inc_any_labels]
+        exc     = [aud_meta[l]["col"] for l in exc_labels]
+        aud_ready = bool(inc_all or inc_any or exc)
+
+        # Compose a readable label from selections
+        if aud_ready:
+            parts = []
+            if inc_all_labels:
+                parts.append(" AND ".join(inc_all_labels))
+            if inc_any_labels:
+                inner = " OR ".join(inc_any_labels)
+                parts.append(f"({inner})" if len(inc_any_labels) > 1 else inner)
+            if exc_labels:
+                inner = " OR ".join(exc_labels)
+                parts.append(f"NOT ({inner})" if len(exc_labels) > 1 else f"NOT {exc_labels[0]}")
+            selected_aud = " AND ".join(parts)
 
     st.markdown("---")
 
     # ── Step 2 partial: DMA table without audience col ────────────────────────
-    if not selected_aud:
+    if not aud_ready:
         sub = (
             dma_df[dma_df["dma_name"].isin(selected_names)]
             .copy()
@@ -308,26 +433,39 @@ def main():
             unsafe_allow_html=True,
         )
         disp = pd.DataFrame({
-            "DMA":                          sub["dma_name"].values,
-            "US HH Rank":                   sub["us_hh_rank"].values,
-            "TV Households":                [fmt_int(v) for v in sub["hh_count"]],
+            "DMA":                             sub["dma_name"].values,
+            "US HH Rank":                      sub["us_hh_rank"].values,
+            "TV Households":                   [fmt_int(v) for v in sub["hh_count"]],
             f"% of {n_markets}-Mkt Footprint": [fmt_pct(v) for v in sub["footprint_pct"]],
         })
         st.dataframe(disp, use_container_width=True, hide_index=True)
         st.info("ℹ️  Select an audience segment above to add penetration columns.")
         return
 
-    # ── Step 3: Run full DMA × Audience query ─────────────────────────────────
-    aud_info = aud_meta[selected_aud]
-
+    # ── Step 3: Run DMA × Audience query (simple or boolean) ──────────────────
     with st.spinner(
         f"Calculating '{selected_aud}' penetration across {n_markets} market{'s' if n_markets != 1 else ''}…"
     ):
-        result = load_market_data(
-            tuple(sorted(selected_codes)),
-            aud_info["col"],
-            aud_info["table"],
-        )
+        if aud_mode == "Single segment":
+            aud_info = aud_meta[selected_aud]
+            result = load_market_data(
+                tuple(sorted(selected_codes)),
+                aud_info["col"],
+                aud_info["table"],
+            )
+        else:
+            aud_table_map = tuple(
+                (col, col_to_table[col])
+                for col in (inc_all + inc_any + exc)
+                if col in col_to_table
+            )
+            result = load_market_data_bool(
+                tuple(sorted(selected_codes)),
+                tuple(inc_all),
+                tuple(inc_any),
+                tuple(exc),
+                aud_table_map,
+            )
 
     # Merge rank from full DMA list
     result = result.merge(
