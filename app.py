@@ -45,10 +45,16 @@ BORDER     = "#2a3d5e"
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 def _conn():
+    if not SERVER_HOSTNAME:
+        raise ValueError("DATABRICKS_SERVER_HOSTNAME secret is missing or empty.")
+    if not HTTP_PATH:
+        raise ValueError("DATABRICKS_HTTP_PATH secret is missing or empty.")
+    if not TOKEN:
+        raise ValueError("DATABRICKS_TOKEN secret is missing or empty.")
     return sql.connect(
-        server_hostname=SERVER_HOSTNAME,
-        http_path=HTTP_PATH,
-        access_token=TOKEN,
+        server_hostname=SERVER_HOSTNAME.strip(),
+        http_path=HTTP_PATH.strip(),
+        access_token=TOKEN.strip(),
     )
 
 
