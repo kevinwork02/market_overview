@@ -423,31 +423,58 @@ def _experian_tab(
         aud_ready = bool(selected_aud)
     else:
         selected_aud = ""
-        hdr = f'<div style="color:{CYAN};font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">'
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown(hdr + "Must match ALL (AND)</div>", unsafe_allow_html=True)
-            inc_all_labels = st.multiselect("", sorted_labels, key="exp_inc_all",
-                                             placeholder="Add segment…", label_visibility="collapsed")
-        with c2:
-            st.markdown(hdr + "Must match ANY (OR)</div>", unsafe_allow_html=True)
-            inc_any_labels = st.multiselect("", sorted_labels, key="exp_inc_any",
-                                             placeholder="Add segment…", label_visibility="collapsed")
-        with c3:
-            st.markdown(hdr + "Exclude (AND NOT)</div>", unsafe_allow_html=True)
-            exc_labels = st.multiselect("", sorted_labels, key="exp_exc",
-                                         placeholder="Add segment…", label_visibility="collapsed")
+        # ── Include ANY (OR) ─────────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="font-size:0.9rem;margin-bottom:6px;">'
+            '<span style="color:#2ECC71;font-weight:700;">Include</span> '
+            'viewers that belong to <strong>any</strong> of these segments</div>',
+            unsafe_allow_html=True,
+        )
+        inc_any_labels = st.multiselect(
+            "", sorted_labels, key="exp_inc_any",
+            placeholder="Search segments…", label_visibility="collapsed",
+        )
+        # ── AND divider ─────────────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="margin:12px 0 2px 0;">'
+            '<span style="background:#1B2A4A;border:1px solid #2a3d5e;color:#80DEEA;'
+            'font-size:0.7rem;font-weight:700;padding:3px 14px;border-radius:4px;'
+            'letter-spacing:0.08em;">AND</span></div>'
+            '<div style="font-size:0.85rem;color:#aaa;margin-bottom:6px;">'
+            'That <strong>also</strong> belong to these segments '
+            '<em style="color:#555;">(Optional)</em></div>',
+            unsafe_allow_html=True,
+        )
+        inc_all_labels = st.multiselect(
+            "", sorted_labels, key="exp_inc_all",
+            placeholder="Search segments…", label_visibility="collapsed",
+        )
+        # ── BUT / Exclude (NOT) ────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="margin:12px 0 2px 0;">'
+            '<span style="background:#2a1515;border:1px solid #5a2525;color:#E74C3C;'
+            'font-size:0.7rem;font-weight:700;padding:3px 14px;border-radius:4px;'
+            'letter-spacing:0.08em;">BUT</span></div>'
+            '<div style="font-size:0.9rem;margin-bottom:6px;">'
+            '<span style="color:#E74C3C;font-weight:700;">Exclude</span> '
+            'viewers that belong to <strong>any</strong> of these segments</div>',
+            unsafe_allow_html=True,
+        )
+        exc_labels = st.multiselect(
+            "", sorted_labels, key="exp_exc",
+            placeholder="Search segments…", label_visibility="collapsed",
+        )
         inc_all = [aud_meta[l]["col"] for l in inc_all_labels]
         inc_any = [aud_meta[l]["col"] for l in inc_any_labels]
         exc     = [aud_meta[l]["col"] for l in exc_labels]
         aud_ready = bool(inc_all or inc_any or exc)
         if aud_ready:
             parts = []
-            if inc_all_labels:
-                parts.append(" AND ".join(inc_all_labels))
             if inc_any_labels:
                 inner = " OR ".join(inc_any_labels)
                 parts.append(f"({inner})" if len(inc_any_labels) > 1 else inner)
+            if inc_all_labels:
+                parts.append(" AND ".join(inc_all_labels))
             if exc_labels:
                 inner = " OR ".join(exc_labels)
                 parts.append(f"NOT ({inner})" if len(exc_labels) > 1 else f"NOT {exc_labels[0]}")
@@ -531,31 +558,58 @@ def _inscape_tab(
             selected_seg_id = seg_meta[selected_seg_label]
             audience_label  = selected_seg_label
     else:
-        hdr = f'<div style="color:{AMBER};font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">'
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown(hdr + "Must match ALL (AND)</div>", unsafe_allow_html=True)
-            inc_all_labels = st.multiselect("", sorted_seg_labels, key="pol_inc_all",
-                                             placeholder="Add segment…", label_visibility="collapsed")
-        with c2:
-            st.markdown(hdr + "Must match ANY (OR)</div>", unsafe_allow_html=True)
-            inc_any_labels = st.multiselect("", sorted_seg_labels, key="pol_inc_any",
-                                             placeholder="Add segment…", label_visibility="collapsed")
-        with c3:
-            st.markdown(hdr + "Exclude (AND NOT)</div>", unsafe_allow_html=True)
-            exc_labels = st.multiselect("", sorted_seg_labels, key="pol_exc",
-                                         placeholder="Add segment…", label_visibility="collapsed")
+        # ── Include ANY (OR) ─────────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="font-size:0.9rem;margin-bottom:6px;">'
+            '<span style="color:#2ECC71;font-weight:700;">Include</span> '
+            'viewers that belong to <strong>any</strong> of these segments</div>',
+            unsafe_allow_html=True,
+        )
+        inc_any_labels = st.multiselect(
+            "", sorted_seg_labels, key="pol_inc_any",
+            placeholder="Search segments…", label_visibility="collapsed",
+        )
+        # ── AND divider ─────────────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="margin:12px 0 2px 0;">'
+            '<span style="background:#1B2A4A;border:1px solid #2a3d5e;color:#80DEEA;'
+            'font-size:0.7rem;font-weight:700;padding:3px 14px;border-radius:4px;'
+            'letter-spacing:0.08em;">AND</span></div>'
+            '<div style="font-size:0.85rem;color:#aaa;margin-bottom:6px;">'
+            'That <strong>also</strong> belong to these segments '
+            '<em style="color:#555;">(Optional)</em></div>',
+            unsafe_allow_html=True,
+        )
+        inc_all_labels = st.multiselect(
+            "", sorted_seg_labels, key="pol_inc_all",
+            placeholder="Search segments…", label_visibility="collapsed",
+        )
+        # ── BUT / Exclude (NOT) ────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="margin:12px 0 2px 0;">'
+            '<span style="background:#2a1515;border:1px solid #5a2525;color:#E74C3C;'
+            'font-size:0.7rem;font-weight:700;padding:3px 14px;border-radius:4px;'
+            'letter-spacing:0.08em;">BUT</span></div>'
+            '<div style="font-size:0.9rem;margin-bottom:6px;">'
+            '<span style="color:#E74C3C;font-weight:700;">Exclude</span> '
+            'viewers that belong to <strong>any</strong> of these segments</div>',
+            unsafe_allow_html=True,
+        )
+        exc_labels = st.multiselect(
+            "", sorted_seg_labels, key="pol_exc",
+            placeholder="Search segments…", label_visibility="collapsed",
+        )
         inc_all_ids = [seg_meta[l] for l in inc_all_labels]
         inc_any_ids = [seg_meta[l] for l in inc_any_labels]
         exc_ids     = [seg_meta[l] for l in exc_labels]
         pol_ready   = bool(inc_all_ids or inc_any_ids or exc_ids)
         if pol_ready:
             parts = []
-            if inc_all_labels:
-                parts.append(" AND ".join(inc_all_labels))
             if inc_any_labels:
                 inner = " OR ".join(inc_any_labels)
                 parts.append(f"({inner})" if len(inc_any_labels) > 1 else inner)
+            if inc_all_labels:
+                parts.append(" AND ".join(inc_all_labels))
             if exc_labels:
                 inner = " OR ".join(exc_labels)
                 parts.append(f"NOT ({inner})" if len(exc_labels) > 1 else f"NOT {exc_labels[0]}")
